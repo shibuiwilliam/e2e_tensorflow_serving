@@ -44,7 +44,7 @@ def request_rest(
     model_spec_name: str = "text",
     signature_name: str = "serving_default",
     address: str = "localhost",
-    port: int = 8500,
+    port: int = 8501,
     timeout_second: int = 5,
 ):
     serving_address = f"http://{address}:{port}/v1/models/{model_spec_name}:predict"
