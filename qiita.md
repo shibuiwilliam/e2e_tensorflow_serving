@@ -1,46 +1,47 @@
-# Tensorflow Servingを使い倒す
+# Tensorflow Serving を使い倒す
 
-有望なディープラーニングのライブラリはTensorflow とPyTorchで勢力が二分されている現状です。それぞれに強み弱みがあり、以下のような特徴があると思います。
+有望なディープラーニングのライブラリは Tensorflow と PyTorch で勢力が二分されている現状です。それぞれに強み弱みがあり、以下のような特徴があると思います。
 
-- Tensorflow：Tensorflow ServingやTensorflow Liteのような豊富な推論エンジン、Tensorflow Hubによる多様な学習済みモデルの配布、TFXによるパイプライン、Kerasの便利な学習API
-- PyTorch：Define by Runによる強力な学習、TorchVisionによる画像処理
+- Tensorflow：Tensorflow Serving や Tensorflow Lite のような豊富な推論エンジン、Tensorflow Hub による多様な学習済みモデルの配布、TFX によるパイプライン、Keras の便利な学習 API
+- PyTorch：Define by Run による強力な学習、TorchVision による画像処理
 
-研究や学習ではPyTorchが圧倒的になっていますが、推論器を動かすとなるとTensorflowのほうが有力な機能を提供していると思います。PyTorchはONNXで推論することが可能ですが、モバイル向けやEnd-to-endなパイプラインサポートとなると、Tensorflow LiteやTFX含めてTensorflowが便利です。
+研究や学習では PyTorch が圧倒的になっていますが、推論器を動かすとなると Tensorflow のほうが有力な機能を提供していると思います。PyTorch は ONNX で推論することが可能ですが、モバイル向けや End-to-end なパイプラインサポートとなると、Tensorflow Lite や TFX 含めて Tensorflow が便利です。
 
-本ブログではTensorflow Servingを用いた推論器とクライアントの作り方を説明します。Tensorflow Servingを動かすだけであれば多様な記事がありますが、本ブログではデータの入力から前処理、推論、後処理、出力まで、End-to-endでTensorflowでカバーする方法を紹介します。
+本ブログでは Tensorflow Serving を用いた推論器とクライアントの作り方を説明します。Tensorflow Serving を動かすだけであれば多様な記事がありますが、本ブログではデータの入力から前処理、推論、後処理、出力まで、End-to-end で Tensorflow でカバーする方法を紹介します。
 
 ## 問題意識
-ディープラーニングでモデルを学習した後、モデルはsaved modelやONNX形式で出力できても、前処理や出力が学習時のPythonコードしかなく、推論へ移行するときに書き直すことになります。
+
+ディープラーニングでモデルを学習した後、モデルは saved model や ONNX 形式で出力できても、前処理や出力が学習時の Python コードしかなく、推論へ移行するときに書き直すことになります。
 
 <TODO：絵>
 
-学習も推論もPythonで、Pythonコードをそのまま使い回せるなら良いですが（それでも間違うことが多々ありますが）、本番システムはJavaやGolang、Node.jsでPythonを組み込む基盤や運用がないということがあります。Python以外の言語で画像やテーブルデータの処理がPythonほど豊富であるとは限りませんし、Pythonで実行している前処理をそのまま動かすことができるとは限りません。
-解決策のひとつは、機械学習の推論プロセスをサポートする推論器を作ることです。推論プロセスのすべてをTensorflowのsaved modelに組み込んでしまい、Tensorflow Servingへ生データをリクエストすれば推論結果がレスポンスされるAPIを作れば、連携するバックエンドはRESTクライアントやGRPCクライアントとしてTensorflow Servingにリクエストを送るだけで良くなります。
-TensorflowのOperatorはニューラルネットワークだけでなく、画像のデコードやリサイズ、テーブルデータのOne Hot化等、機械学習に必須な処理が可能になっています。従来であればPythonのPillowやScikit-learnに依存していた処理がTensorflowの計算グラフに組み込まれているため、推論のデータ入力から推論結果の出力まで、全工程をTensorflow Servingでカバーすることができます。
+学習も推論も Python で、Python コードをそのまま使い回せるなら良いですが（それでも間違うことが多々ありますが）、本番システムは Java や Golang、Node.js で Python を組み込む基盤や運用がないということがあります。Python 以外の言語で画像やテーブルデータの処理が Python ほど豊富であるとは限りませんし、Python で実行している前処理をそのまま動かすことができるとは限りません。
+解決策のひとつは、機械学習の推論プロセスをサポートする推論器を作ることです。推論プロセスのすべてを Tensorflow の saved model に組み込んでしまい、Tensorflow Serving へ生データをリクエストすれば推論結果がレスポンスされる API を作れば、連携するバックエンドは REST クライアントや GRPC クライアントとして Tensorflow Serving にリクエストを送るだけで良くなります。
+Tensorflow の Operator はニューラルネットワークだけでなく、画像のデコードやリサイズ、テーブルデータの One Hot 化等、機械学習に必須な処理が可能になっています。従来であれば Python の Pillow や Scikit-learn に依存していた処理が Tensorflow の計算グラフに組み込まれているため、推論のデータ入力から推論結果の出力まで、全工程を Tensorflow Serving でカバーすることができます。
 
-本ブログではTensorflow Servingによる画像分類、テキストの感情分析、テーブルデータの2値分類を使い、Tensorflow Servingの可能性を開いていきたいと思います。
+本ブログでは Tensorflow Serving による画像分類、テキストの感情分析、テーブルデータの 2 値分類を使い、Tensorflow Serving の可能性を開いていきたいと思います。
 
 ## Tensorflow Serving
 
-Tensorflow ServingはTensorflowやKerasのモデルを推論器として稼働させるためのシステムです。Tensorflowのsaved modelをWeb API（GRPCとREST API）として稼働させることができます。また単なるWeb APIだけでなく、[バッチシステム](https://github.com/tensorflow/serving/blob/master/tensorflow_serving/batching/README.md)として動かすこともできます。[複数バージョンのモデルを同一のServingに組み込み、エンドポイントを分けることも可能です](https://www.tensorflow.org/tfx/serving/serving_config)。Tensorflow ServingはDockerで起動させることが一般的です。
+Tensorflow Serving は Tensorflow や Keras のモデルを推論器として稼働させるためのシステムです。Tensorflow の saved model を Web API（GRPC と REST API）として稼働させることができます。また単なる Web API だけでなく、[バッチシステム](https://github.com/tensorflow/serving/blob/master/tensorflow_serving/batching/README.md)として動かすこともできます。[複数バージョンのモデルを同一の Serving に組み込み、エンドポイントを分けることも可能です](https://www.tensorflow.org/tfx/serving/serving_config)。Tensorflow Serving は Docker で起動させることが一般的です。
 
 ![Tensorflow Serving](https://www.tensorflow.org/tfx/serving/images/serving_architecture.svg)
 
 ## 画像分類
 
-ディープラーニングの重要な使い途の一つが画像処理です。今回は[Inception V3](https://tfhub.dev/google/imagenet/inception_v3/classification/4)を使った画像分類をTensorflow Servingで動かします。
+ディープラーニングの重要な使い途の一つが画像処理です。今回は[Inception V3](https://tfhub.dev/google/imagenet/inception_v3/classification/4)を使った画像分類を Tensorflow Serving で動かします。
 画像分類のプロセスは以下になります。
 
 1. 生データの画像ファイルを入力データとして受け取る。
 2. 画像をデコードする。
-3. 画像をリサイズしてInception V3の入力Shapeである(299,299,3)に変換する。
-4. Inception V3で推論し、Softmaxを得る。
-5. 各ラベルにSoftmaxの確率をマッピングする。
+3. 画像をリサイズして Inception V3 の入力 Shape である(299,299,3)に変換する。
+4. Inception V3 で推論し、Softmax を得る。
+5. 各ラベルに Softmax の確率をマッピングする。
 6. 最も確率の高いラベルを出力する。
 
-Inception V3が担うのは常勤お4のみで、1,2,3,5,6は前処理や後処理として周辺システムでカバーする必要があります。学習時はPythonでPillowやOpenCV、Numpy等々を使って書きますが、推論時に同様のライブラリを使えるとは限りません。特にPython以外の言語で構築する場合、OpenCVを使うことはできるかもしれませんが、他のPillowやNumpyは他のライブラリで代替するか、自作する必要があります。
-しかしTensorflow であれば、1,2,3,5,6もTensor Operationに組み込み、推論の全行程をカバーすることができます。そのためにはtf.functionに前処理（1,2,3）と後処理（5,6）のOperationを記述します。
-以下の`def serfing_fn`がそのOperationになります。PillowやNumpyでも同様の処理を書くことがあると思いますが、記述量も複雑さも大差ない実装が可能です。
+Inception V3 が担うのは常勤お 4 のみで、1,2,3,5,6 は前処理や後処理として周辺システムでカバーする必要があります。学習時は Python で Pillow や OpenCV、Numpy 等々を使って書きますが、推論時に同様のライブラリを使えるとは限りません。特に Python 以外の言語で構築する場合、OpenCV を使うことはできるかもしれませんが、他の Pillow や Numpy は他のライブラリで代替するか、自作する必要があります。
+しかし Tensorflow であれば、1,2,3,5,6 も Tensor Operation に組み込み、推論の全行程をカバーすることができます。そのためには tf.function に前処理（1,2,3）と後処理（5,6）の Operation を記述します。
+以下の`def serfing_fn`がその Operation になります。Pillow や Numpy でも同様の処理を書くことがあると思いますが、記述量も複雑さも大差ない実装が可能です。
 
 ```Python
 from typing import List
@@ -82,7 +83,7 @@ class InceptionV3Model(tf.keras.Model):
         tf.saved_model.save(self, export_path, signatures=signatures)
 ```
 
-上記`InceptionV3Model`クラスのインスタンスをsaved modelとして保存し、Tensorflow Servingとして起動することができます。起動したTensorflow ServingはGRPCとして8500ポート、REST APIとして8501ポートが開放されます。
+上記`InceptionV3Model`クラスのインスタンスを saved model として保存し、Tensorflow Serving として起動することができます。起動した Tensorflow Serving は GRPC として 8500 ポート、REST API として 8501 ポートが開放されます。
 
 ```sh
 docker run -t -d --rm \
@@ -94,7 +95,7 @@ docker run -t -d --rm \
 tensorflow/serving:2.3.0
 ```
 
-エンドポイントの定義は以下のようになっています。`inputs`以下が入力定義で、`outputs`以下が出力定義です。`inputs`では`image`タグのデータを取ります。Shapeが`-1`となっていますが、これは画像のbase64エンコードされたデータを入力とするためです。この時点でTensorflow Servingへの入力は(299,299,3)次元の配列ではなく、画像データそのものとなっています。
+エンドポイントの定義は以下のようになっています。`inputs`以下が入力定義で、`outputs`以下が出力定義です。`inputs`では`image`タグのデータを取ります。Shape が`-1`となっていますが、これは画像の base64 エンコードされたデータを入力とするためです。この時点で Tensorflow Serving への入力は(299,299,3)次元の配列ではなく、画像データそのものとなっています。
 
 ```sh
 $ curl localhost:8501/v1/models/inception_v3/versions/0/metadata
@@ -155,8 +156,8 @@ $ curl localhost:8501/v1/models/inception_v3/versions/0/metadata
 }
 ```
 
-リクエストは以下のように実行することができます。GRPCとREST APIの例を書いていますが、どちらも画像をバイナリデータとして読み込み、base64エンコードしてTensorflow Servingのエンドポイントにリクエストします。クライアントは前処理することなくTensorflow Servingにデータをリクエストします。
-注意点はTensorflowの[`tf.io.decode_base64`](https://www.tensorflow.org/api_docs/python/tf/io/decode_base64)が`base64.urlsafe_b64encode`されたデータでないとデコードできないという点です。
+リクエストは以下のように実行することができます。GRPC と REST API の例を書いていますが、どちらも画像をバイナリデータとして読み込み、base64 エンコードして Tensorflow Serving のエンドポイントにリクエストします。クライアントは前処理することなく Tensorflow Serving にデータをリクエストします。
+注意点は Tensorflow の[`tf.io.decode_base64`](https://www.tensorflow.org/api_docs/python/tf/io/decode_base64)が`base64.urlsafe_b64encode`されたデータでないとデコードできないという点です。
 
 ```python
 def read_image(image_file: str = "./a.jpg") -> bytes:
@@ -222,6 +223,25 @@ Siamese cat
 
 ## テキストの感情分析
 
-## テーブルデータ2値分類
+続いてテキスト分類です。テキスト処理も画像と同様で、入力、前処理、後処理、出力になる箇所を
+Tensorflow でカバーします。Tensorflow のテキスト処理で使えるライブラリは複数あります。
 
+- [Tensorflow Text](https://github.com/tensorflow/text)
+- [Tensorflow Transform](https://www.tensorflow.org/tfx/transform/api_docs/python/tft)
+- [Tensorflow Keras Preprocessing](https://www.tensorflow.org/api_docs/python/tf/keras/preprocessing)
+- [Tensorflow Keras Layers Preprocessing](https://www.tensorflow.org/api_docs/python/tf/keras/layers/experimental/preprocessing)
 
+今回は[Tensorflow Keras Layers Preprocessing](https://www.tensorflow.org/api_docs/python/tf/keras/layers/experimental/preprocessing)を使います。これを選んだのは API が使いやすいという理由です。
+
+データとして[Kaggle にある感情分析の NLP データ](https://www.kaggle.com/praveengovi/emotions-dataset-for-nlp)を使用します。感情分析の英文データで、[anger, fear, joy, love, sadness, surprise]の 6 クラス分類となっています。
+
+- anger: i felt anger when at the end of a telephone call
+- fear: i pay attention it deepens into a feeling of being invaded and helpless
+- joy: i am feeling totally relaxed and comfy
+- love: i want each of you to feel my gentle embrace
+- sadness: i realized my mistake and i m really feeling terrible and thinking that i shouldn't do that
+- surprise: i feel shocked and sad at the fact that there are so many sick people
+
+テキストは前処理として tfidf でベクター化します。[Tensorflow Keras Layers Preprocessing](https://www.tensorflow.org/api_docs/python/tf/keras/layers/experimental/preprocessing)では[TextVectorization](https://www.tensorflow.org/api_docs/python/tf/keras/layers/experimental/preprocessing/TextVectorization)で tfidf 等のベクター化が可能です。
+
+## テーブルデータ 2 値分類
