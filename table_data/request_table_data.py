@@ -62,8 +62,6 @@ def request_grpc(
     request.inputs["thal"].CopyFrom(tf.make_tensor_proto(thal))
     response = stub.Predict(request, timeout_second)
 
-    print(response)
-
     prediction = response.outputs["output_1"].float_val[0]
     return prediction
 
@@ -84,7 +82,7 @@ def request_rest(
         json.dumps(request_dict),
         headers=headers,
     )
-    return dict(response.json())["outputs"][0]
+    return dict(response.json())["outputs"][0][0]
 
 
 def main():
