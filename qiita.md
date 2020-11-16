@@ -224,16 +224,9 @@ Siamese cat
 ## テキストの感情分析
 
 続いてテキスト分類です。テキスト処理も画像と同様で、入力、前処理、後処理、出力になる箇所を
-Tensorflow でカバーします。Tensorflow のテキスト処理で使えるライブラリは複数あります。
+Tensorflow でカバーします。
 
-- [Tensorflow Text](https://github.com/tensorflow/text)
-- [Tensorflow Transform](https://www.tensorflow.org/tfx/transform/api_docs/python/tft)
-- [Tensorflow Keras Preprocessing](https://www.tensorflow.org/api_docs/python/tf/keras/preprocessing)
-- [Tensorflow Keras Layers Preprocessing](https://www.tensorflow.org/api_docs/python/tf/keras/layers/experimental/preprocessing)
-
-今回は[Tensorflow Keras Layers Preprocessing](https://www.tensorflow.org/api_docs/python/tf/keras/layers/experimental/preprocessing)を使います。これを選んだのは API が使いやすいという理由です。
-
-データとして[Kaggle にある感情分析の NLP データ](https://www.kaggle.com/praveengovi/emotions-dataset-for-nlp)を使用します。感情分析の英文データで、[anger, fear, joy, love, sadness, surprise]の 6 クラス分類となっています。
+今回はサンプルデータとして[Kaggle にある感情分析の NLP データ](https://www.kaggle.com/praveengovi/emotions-dataset-for-nlp)を使用します。感情分析の英文データで、[anger, fear, joy, love, sadness, surprise]の 6 クラス分類となっています。
 
 - anger: i felt anger when at the end of a telephone call
 - fear: i pay attention it deepens into a feeling of being invaded and helpless
@@ -242,6 +235,203 @@ Tensorflow でカバーします。Tensorflow のテキスト処理で使える�
 - sadness: i realized my mistake and i m really feeling terrible and thinking that i shouldn't do that
 - surprise: i feel shocked and sad at the fact that there are so many sick people
 
-テキストは前処理として tfidf でベクター化します。[Tensorflow Keras Layers Preprocessing](https://www.tensorflow.org/api_docs/python/tf/keras/layers/experimental/preprocessing)では[TextVectorization](https://www.tensorflow.org/api_docs/python/tf/keras/layers/experimental/preprocessing/TextVectorization)で tfidf 等のベクター化が可能です。
+Tensorflow のテキスト処理で使えるライブラリは複数あります。
+
+- [Tensorflow Text](https://github.com/tensorflow/text)
+- [Tensorflow Transform](https://www.tensorflow.org/tfx/transform/api_docs/python/tft)
+- [Tensorflow Keras Preprocessing](https://www.tensorflow.org/api_docs/python/tf/keras/preprocessing)
+- [Tensorflow Keras Layers Preprocessing](https://www.tensorflow.org/api_docs/python/tf/keras/layers/experimental/preprocessing)
+
+今回は[Tensorflow Keras Layers Preprocessing](https://www.tensorflow.org/api_docs/python/tf/keras/layers/experimental/preprocessing)を使います。これを選んだのは API が使いやすいという理由です。
+テキスト分類では以下の手順をたどります。前処理はテキストや目的次第ですが、今回は簡単のために tfidf を使います。
+
+1. 生データのテキストを入力データとして受け取る。
+2. テキストを前処理してベクターにする。
+3. ニューラルネットワーク で推論し、Softmax を得る。
+4. 各ラベルに Softmax の確率をマッピングする。
+5. 最も確率の高いラベルを出力する。
+
+[Tensorflow Keras Layers Preprocessing](https://www.tensorflow.org/api_docs/python/tf/keras/layers/experimental/preprocessing)では[TextVectorization](https://www.tensorflow.org/api_docs/python/tf/keras/layers/experimental/preprocessing/TextVectorization)で テキストデータの tfidf のベクター化が可能です。
+以下は TextVectorization を使用したサンプルコードです。`TextVectorization.adapt`でテキストデータに対して変換マップを作ることができます。adapt した TextVectorization は`tf.keras.layer`として Keras Model の 1 レイヤーに組み込むことができます。今回は入力レイヤーに使います。
+
+```python
+def make_text_vectorizer(
+    data: np.ndarray,
+) -> tf.keras.layers.experimental.preprocessing.TextVectorization:
+    text_vectorizer = tf.keras.layers.experimental.preprocessing.TextVectorization(
+        output_mode="tf-idf", ngrams=2
+    )
+    text_vectorizer.adapt(data)
+    return text_vectorizer
+
+def define_model(
+    text_vectorizer: tf.keras.layers.experimental.preprocessing.TextVectorization,
+    optimizer: str = "adam",
+    loss: str = "categorical_crossentropy",
+    metrics: List[str] = ["accuracy"],
+) -> tf.keras.Model:
+    inputs = keras.Input(shape=(1,), dtype="string")
+    x = text_vectorizer(inputs)
+    x = layers.Dense(1)(x)
+    x = layers.Dense(256, activation="relu")(x)
+    x = layers.Dense(256, activation="relu")(x)
+    outputs = layers.Dense(6, activation="softmax")(x)
+
+    model = keras.Model(inputs, outputs)
+    model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
+    return model
+```
+
+fit したモデルを使って saved model を作成します。今回は TextVectorization が入力データの前処理を担うため、後処理（手順 4,5）の分類部分のみ追加実装しています。
+
+```python
+class TextModel(tf.keras.Model):
+    def __init__(self, model: tf.keras.Model, labels: List[str]):
+        super().__init__(self)
+        self.model = model
+        self.labels = labels
+
+    @tf.function(
+        input_signature=[tf.TensorSpec(shape=[None], dtype=tf.string, name="text")]
+    )
+    def serving_fn(self, text: str) -> tf.Tensor:
+        predictions = self.model(text)
+
+        def _convert_to_label(candidates):
+            max_prob = tf.math.reduce_max(candidates)
+            idx = tf.where(tf.equal(candidates, max_prob))
+            label = tf.squeeze(tf.gather(self.labels, idx))
+            return label
+
+        return tf.map_fn(_convert_to_label, predictions, dtype=tf.string)
+
+    def save(self, export_path="./saved_model/text/"):
+        signatures = {"serving_default": self.serving_fn}
+        tf.keras.backend.set_learning_phase(0)
+        tf.saved_model.save(self, export_path, signatures=signatures)
+```
+
+保存した saved model で Tensorflow Serving を起動します。
+
+```sh
+docker run -t -d --rm \
+-p 8501:8501 \
+-p 8500:8500 \
+--name text \
+-v $(pwd)/saved_model/text:/models/text \
+-e MODEL_NAME=text \
+tensorflow/serving:2.3.0
+```
+
+Tensorflow Serving のメタデータは以下のとおりになっています。入力として`text`フィールドにテキストデータを入れてリクエストします。出力は`outout_0`に推論結果のラベルがレスポンスされます。
+
+```sh
+$ curl localhost:8501/v1/models/text/versions/0/metadata
+{
+"model_spec":{
+ "name": "text",
+ "signature_name": "",
+ "version": "0"
+}
+,
+"metadata": {"signature_def": {
+ "signature_def": {
+  "serving_default": {
+   "inputs": {
+    "text": {
+     "dtype": "DT_STRING",
+     "tensor_shape": {
+      "dim": [
+       {
+        "size": "-1",
+        "name": ""
+       }
+      ],
+      "unknown_rank": false
+     },
+     "name": "serving_default_text:0"
+    }
+   },
+   "outputs": {
+    "output_0": {
+     "dtype": "DT_STRING",
+     "tensor_shape": {
+      "dim": [],
+      "unknown_rank": true
+     },
+     "name": "StatefulPartitionedCall:0"
+    }
+   },
+   "method_name": "tensorflow/serving/predict"
+  },
+  "__saved_model_init_op": {
+   "inputs": {},
+   "outputs": {
+    "__saved_model_init_op": {
+     "dtype": "DT_INVALID",
+     "tensor_shape": {
+      "dim": [],
+      "unknown_rank": true
+     },
+     "name": "NoOp"
+    }
+   },
+   "method_name": ""
+  }
+ }
+}
+}
+}
+```
+
+今回も GRPC と REST のリクエスト例を示します。テキストデータをそのままリクエストに入れることができます。事前に前処理する必要はありません。
+
+```python
+def read_text(text_file: str = "./text.txt") -> str:
+    with open(text_file, "r") as f:
+        text = f.read()
+    return text
+
+# GRPC
+def request_grpc(
+    text: str,
+    model_spec_name: str = "text",
+    signature_name: str = "serving_default",
+    address: str = "localhost",
+    port: int = 8500,
+    timeout_second: int = 5,
+) -> str:
+    serving_address = f"{address}:{port}"
+    channel = grpc.insecure_channel(serving_address)
+    stub = prediction_service_pb2_grpc.PredictionServiceStub(channel)
+
+    request = predict_pb2.PredictRequest()
+    request.model_spec.name = model_spec_name
+    request.model_spec.signature_name = signature_name
+    request.inputs["text"].CopyFrom(tf.make_tensor_proto([text]))
+    response = stub.Predict(request, timeout_second)
+
+    prediction = response.outputs["output_0"].string_val[0].decode("utf-8")
+    return prediction
+
+# REST API
+def request_rest(
+    text: str,
+    model_spec_name: str = "text",
+    signature_name: str = "serving_default",
+    address: str = "localhost",
+    port: int = 8501,
+    timeout_second: int = 5,
+):
+    serving_address = f"http://{address}:{port}/v1/models/{model_spec_name}:predict"
+    headers = {"Content-Type": "application/json"}
+    request_dict = {"inputs": {"text": [text]}}
+    response = requests.post(
+        serving_address,
+        json.dumps(request_dict),
+        headers=headers,
+    )
+    return dict(response.json())["outputs"][0]
+```
 
 ## テーブルデータ 2 値分類
