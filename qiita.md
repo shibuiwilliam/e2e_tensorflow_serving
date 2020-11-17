@@ -503,3 +503,317 @@ def define_model(
     model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
     return model
 ```
+
+これでモデルは完成です。モデルを保存して saved model とし、Tensorflow Serving として起動することができます。
+
+```sh
+docker run -t -d --rm \
+-p 8501:8501 \
+-p 8500:8500 \
+--name table_data \
+-v $(pwd)/saved_model/table_data:/models/table_data \
+-e MODEL_NAME=table_data \
+tensorflow/serving:2.3.0
+```
+
+Tensorflow Serving への入力データはカラム毎にフィールドを指定する形式になります。metadata を取ると以下のようになっています。長くなっていますが、各カラムで入力フィールドを定義しており、受け付けるデータ型や Shape が明示されています。
+
+```sh
+$ curl localhost:8501/v1/models/table_data/versions/0/metadata
+{
+"model_spec":{
+ "name": "table_data",
+ "signature_name": "",
+ "version": "0"
+}
+,
+"metadata": {"signature_def": {
+ "signature_def": {
+  "serving_default": {
+   "inputs": {
+    "oldpeak": {
+     "dtype": "DT_DOUBLE",
+     "tensor_shape": {
+      "dim": [
+       {
+        "size": "-1",
+        "name": ""
+       },
+       {
+        "size": "1",
+        "name": ""
+       }
+      ],
+      "unknown_rank": false
+     },
+     "name": "serving_default_oldpeak:0"
+    },
+    "restecg": {
+     "dtype": "DT_INT64",
+     "tensor_shape": {
+      "dim": [
+       {
+        "size": "-1",
+        "name": ""
+       },
+       {
+        "size": "1",
+        "name": ""
+       }
+      ],
+      "unknown_rank": false
+     },
+     "name": "serving_default_restecg:0"
+    },
+    "trestbps": {
+     "dtype": "DT_INT64",
+     "tensor_shape": {
+      "dim": [
+       {
+        "size": "-1",
+        "name": ""
+       },
+       {
+        "size": "1",
+        "name": ""
+       }
+      ],
+      "unknown_rank": false
+     },
+     "name": "serving_default_trestbps:0"
+    },
+    "slope": {
+     "dtype": "DT_INT64",
+     "tensor_shape": {
+      "dim": [
+       {
+        "size": "-1",
+        "name": ""
+       },
+       {
+        "size": "1",
+        "name": ""
+       }
+      ],
+      "unknown_rank": false
+     },
+     "name": "serving_default_slope:0"
+    },
+    "sex": {
+     "dtype": "DT_INT64",
+     "tensor_shape": {
+      "dim": [
+       {
+        "size": "-1",
+        "name": ""
+       },
+       {
+        "size": "1",
+        "name": ""
+       }
+      ],
+      "unknown_rank": false
+     },
+     "name": "serving_default_sex:0"
+    },
+    "ca": {
+     "dtype": "DT_INT64",
+     "tensor_shape": {
+      "dim": [
+       {
+        "size": "-1",
+        "name": ""
+       },
+       {
+        "size": "1",
+        "name": ""
+       }
+      ],
+      "unknown_rank": false
+     },
+     "name": "serving_default_ca:0"
+    },
+    "exang": {
+     "dtype": "DT_INT64",
+     "tensor_shape": {
+      "dim": [
+       {
+        "size": "-1",
+        "name": ""
+       },
+       {
+        "size": "1",
+        "name": ""
+       }
+      ],
+      "unknown_rank": false
+     },
+     "name": "serving_default_exang:0"
+    },
+    "fbs": {
+     "dtype": "DT_INT64",
+     "tensor_shape": {
+      "dim": [
+       {
+        "size": "-1",
+        "name": ""
+       },
+       {
+        "size": "1",
+        "name": ""
+       }
+      ],
+      "unknown_rank": false
+     },
+     "name": "serving_default_fbs:0"
+    },
+    "chol": {
+     "dtype": "DT_INT64",
+     "tensor_shape": {
+      "dim": [
+       {
+        "size": "-1",
+        "name": ""
+       },
+       {
+        "size": "1",
+        "name": ""
+       }
+      ],
+      "unknown_rank": false
+     },
+     "name": "serving_default_chol:0"
+    },
+    "thalach": {
+     "dtype": "DT_INT64",
+     "tensor_shape": {
+      "dim": [
+       {
+        "size": "-1",
+        "name": ""
+       },
+       {
+        "size": "1",
+        "name": ""
+       }
+      ],
+      "unknown_rank": false
+     },
+     "name": "serving_default_thalach:0"
+    },
+    "thal": {
+     "dtype": "DT_STRING",
+     "tensor_shape": {
+      "dim": [
+       {
+        "size": "-1",
+        "name": ""
+       },
+       {
+        "size": "1",
+        "name": ""
+       }
+      ],
+      "unknown_rank": false
+     },
+     "name": "serving_default_thal:0"
+    },
+    "cp": {
+     "dtype": "DT_INT64",
+     "tensor_shape": {
+      "dim": [
+       {
+        "size": "-1",
+        "name": ""
+       },
+       {
+        "size": "1",
+        "name": ""
+       }
+      ],
+      "unknown_rank": false
+     },
+     "name": "serving_default_cp:0"
+    },
+    "age": {
+     "dtype": "DT_INT64",
+     "tensor_shape": {
+      "dim": [
+       {
+        "size": "-1",
+        "name": ""
+       },
+       {
+        "size": "1",
+        "name": ""
+       }
+      ],
+      "unknown_rank": false
+     },
+     "name": "serving_default_age:0"
+    }
+   },
+   "outputs": {
+    "output_1": {
+     "dtype": "DT_FLOAT",
+     "tensor_shape": {
+      "dim": [
+       {
+        "size": "-1",
+        "name": ""
+       },
+       {
+        "size": "1",
+        "name": ""
+       }
+      ],
+      "unknown_rank": false
+     },
+     "name": "StatefulPartitionedCall_1:0"
+    }
+   },
+   "method_name": "tensorflow/serving/predict"
+  },
+  "__saved_model_init_op": {
+   "inputs": {},
+   "outputs": {
+    "__saved_model_init_op": {
+     "dtype": "DT_INVALID",
+     "tensor_shape": {
+      "dim": [],
+      "unknown_rank": true
+     },
+     "name": "NoOp"
+    }
+   },
+   "method_name": ""
+  }
+ }
+}
+}
+}
+```
+
+たとえば json でリクエストする場合、以下のようなデータでリクエストすることができます。
+
+```sh
+{
+  "age": [[71]],
+  "sex": [[0]],
+  "cp": [[4]],
+  "trestbps": [[112]],
+  "chol": [[149]],
+  "fbs": [[0]],
+  "restecg": [[0]],
+  "thalach": [[125]],
+  "exang": [[0]],
+  "oldpeak": [[1.6]],
+  "slope": [[2]],
+  "ca": [[0]],
+  "thal": [["normal"]]
+}
+```
+
+## まとめ
+
+Tensorflow の Operation を活用すれば、ディープラーニングのモデルだけでなく、データ入力から前処理、後処理までを計算グラフに組み込むことができます。学習から推論器へとシステムを移管する際、コードの書き換えが発生して非効率なシステム開発や設計になることがあります。End-to-end でテンソル演算に組み込んで Tensorflow Serving で推論することで、機械学習の学習時と同様の推論 API を構築することできます。
