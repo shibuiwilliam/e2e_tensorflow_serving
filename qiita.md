@@ -435,3 +435,48 @@ def request_rest(
 ```
 
 ## テーブルデータ 2 値分類
+
+最後にテーブルデータです。
+モデル自体は Tensorflow のサンプルで公開されている[Classify structured data with feature columns](https://www.tensorflow.org/tutorials/structured_data/feature_columns)を使用します。以下のようなデータ構成になっています。
+
+[table_data](./table_data.png)
+
+テーブルデータの前処理は [tensorflow.feature_column](https://www.tensorflow.org/api_docs/python/tf/feature_column)で各種データの変換をサポートしています。[tensorflow.feature_column](https://www.tensorflow.org/api_docs/python/tf/feature_column)を使用した推論の流れは以下のようになります。
+
+1. データを入力データとして受け取る。
+2. データをカラムに応じて前処理する。
+3. ニューラルネットワーク で推論し、Sigmoid を得る。
+4. 陽性の確率を出力する。
+
+前処理含めて学習時にカラムの前処理を定義することができます。
+
+```python
+from tensorflow import feature_column
+from tensorflow.keras import layers
+
+feature_columns = []
+
+for header in ["age", "trestbps", "chol", "thalach", "oldpeak", "slope", "ca"]:
+    feature_columns.append(feature_column.numeric_column(header))
+
+age = feature_column.numeric_column("age")
+age_buckets = feature_column.bucketized_column(
+    age, boundaries=[18, 25, 30, 35, 40, 45, 50, 55, 60, 65]
+)
+feature_columns.append(age_buckets)
+
+thal = feature_column.categorical_column_with_vocabulary_list(
+    "thal", ["fixed", "normal", "reversible"]
+)
+thal_one_hot = feature_column.indicator_column(thal)
+feature_columns.append(thal_one_hot)
+
+thal_embedding = feature_column.embedding_column(thal, dimension=8)
+feature_columns.append(thal_embedding)
+
+crossed_feature = feature_column.crossed_column(
+    [age_buckets, thal], hash_bucket_size=1000
+)
+crossed_feature = feature_column.indicator_column(crossed_feature)
+feature_columns.append(crossed_feature)
+```
