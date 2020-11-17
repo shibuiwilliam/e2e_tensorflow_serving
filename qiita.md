@@ -448,7 +448,7 @@ def request_rest(
 3. ニューラルネットワーク で推論し、Sigmoid を得る。
 4. 陽性の確率を出力する。
 
-前処理含めて学習時にカラムの前処理を定義することができます。
+前処理含めて学習時にカラムの前処理を定義することができます。使い方はシンプルで、データの特徴に応じて変換方法を適用するだけで使えます。
 
 ```python
 from tensorflow import feature_column
@@ -479,4 +479,27 @@ crossed_feature = feature_column.crossed_column(
 )
 crossed_feature = feature_column.indicator_column(crossed_feature)
 feature_columns.append(crossed_feature)
+```
+
+`feature_column`で定義したデータの前処理をモデルの入力レイヤーとして活用することが可能です。
+
+```python
+def define_model(
+    feature_columns: List[Any],
+    optimizer: str = "adam",
+    loss: str = "binary_crossentropy",
+    metrics: List[str] = ["accuracy"],
+) -> tf.keras.Model:
+    feature_layer = tf.keras.layers.DenseFeatures(feature_columns)
+    model = tf.keras.Sequential(
+        [
+            feature_layer,
+            layers.Dense(128, activation="relu"),
+            layers.Dense(128, activation="relu"),
+            layers.Dense(1, activation="sigmoid"),
+        ]
+    )
+
+    model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
+    return model
 ```
